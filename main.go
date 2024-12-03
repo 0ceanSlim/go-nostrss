@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"strings"
 	"time"
 
 	"go-nostrss/nostr"
@@ -54,7 +55,7 @@ func main() {
 			}
 
 			// Prepare event content
-			content := item.Title + "\n" + item.Link
+			content := strings.TrimSpace(item.Title) + "\n" + item.Link
 
 			// Use the article's publish time for the event's created_at field
 			var createdAt int64
