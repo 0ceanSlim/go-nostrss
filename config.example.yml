@@ -1,0 +1,6 @@
+rss_feed: "URL of the RSS Feed"
+nostr_private_key: "Your Private Key in Hex Format"
+nostr_public_key: "Your Public Key in Hex Format"
+relay_url: "wss://relay.example.com"
+fetch_interval_minutes: 5
+cache_file: "posted_articles.json"
