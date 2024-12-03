@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"time"
 
 	"go-nostrss/types"
 
@@ -16,10 +15,10 @@ import (
 )
 
 // CreateNostrEvent creates a Nostr event with the given content and public key
-func CreateNostrEvent(content, pubkey string) (*types.NostrEvent, error) {
+func CreateNostrEvent(content, pubkey string, createdAt int64) (*types.NostrEvent, error) {
 	event := &types.NostrEvent{
 		Pubkey:    pubkey,
-		CreatedAt: time.Now().Unix(),
+		CreatedAt: createdAt, // Use the provided timestamp
 		Kind:      1,
 		Content:   content,
 		Tags:      [][]string{},

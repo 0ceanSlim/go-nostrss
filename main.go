@@ -53,12 +53,23 @@ func main() {
 				continue
 			}
 
-			// In the main function, ensure the public key is passed into CreateNostrEvent:
-			event, err := nostr.CreateNostrEvent(item.Link, config.NostrPublicKey)
+			// Prepare event content
+			content := item.Title + "\n" + item.Link
+
+			// Use the article's publish time for the event's created_at field
+			var createdAt int64
+			if item.PublishedParsed != nil {
+				createdAt = item.PublishedParsed.Unix()
+			} else {
+				createdAt = time.Now().Unix() // Fallback to current time if not available
+			}
+
+			// Create Nostr event with the article's publish time and content
+			event, err := nostr.CreateNostrEvent(content, config.NostrPublicKey, createdAt)
 			if err != nil {
 				log.Printf("Error creating Nostr event: %v", err)
 				continue
-}
+			}
 
 			err = nostr.SignAndSendEvent(event, config.NostrPrivateKey, config.RelayURL)
 			if err != nil {
