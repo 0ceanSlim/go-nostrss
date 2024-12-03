@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 
 	"log"
 	"os"
@@ -20,34 +21,59 @@ type Cache struct {
 	mu          sync.Mutex
 }
 
-// LoadCache loads the cache from the cache file
 func LoadCache(filename string) (*Cache, error) {
+	log.Printf("Loading cache from file: %s", filename) // Debug log
+
 	cache := &Cache{PostedLinks: make(map[string]bool)}
 
 	data, err := os.ReadFile(filename)
 	if err != nil {
 		if os.IsNotExist(err) {
-			// Return an empty cache if the file doesn't exist
+			log.Printf("Cache file not found, initializing empty cache") // Debug log
 			return cache, nil
 		}
-		return nil, err
+		log.Printf("Error reading cache file: %v", err) // Debug log
+		return nil, fmt.Errorf("failed to read cache file: %w", err)
 	}
 
 	err = json.Unmarshal(data, cache)
-	return cache, err
+	if err != nil {
+		log.Printf("Cache file is invalid or corrupted, reinitializing empty cache") // Debug log
+		return &Cache{PostedLinks: make(map[string]bool)}, nil
+	}
+
+	log.Printf("Cache loaded successfully: %d items", len(cache.PostedLinks)) // Debug log
+	return cache, nil
 }
 
-// SaveCache saves the cache to the cache file
+
 func SaveCache(filename string, cache *Cache) error {
+	log.Printf("Saving cache to file: %s", filename) // Debug log
+
 	cache.mu.Lock()
-	defer cache.mu.Unlock()
+	log.Println("Cache lock acquired for saving") // Debug log
+	defer func() {
+		cache.mu.Unlock()
+		log.Println("Cache lock released after saving") // Debug log
+	}()
 
 	data, err := json.Marshal(cache)
 	if err != nil {
-		return err
+		log.Printf("Error serializing cache: %v", err) // Debug log
+		return fmt.Errorf("failed to serialize cache: %w", err)
 	}
 
-	return os.WriteFile(filename, data, 0644)
+	_ = os.Rename(filename, filename+".bak") // Optional backup
+	log.Println("Backup created for cache file") // Debug log
+
+	err = os.WriteFile(filename, data, 0644)
+	if err != nil {
+		log.Printf("Error writing cache to file: %v", err) // Debug log
+		return fmt.Errorf("failed to write cache file: %w", err)
+	}
+
+	log.Println("Cache saved successfully") // Debug log
+	return nil
 }
 
 // FetchRSSFeed fetches and parses the RSS feed
