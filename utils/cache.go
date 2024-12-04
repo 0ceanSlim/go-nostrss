@@ -40,10 +40,10 @@ func SaveCache(filename string, cache *types.Cache) error {
 	log.Printf("Saving cache to file: %s", filename)
 
 	cache.Mu.Lock()
-	log.Println("Cache lock acquired for saving")
+	//log.Println("Cache lock acquired for saving")
 	defer func() {
 		cache.Mu.Unlock()
-		log.Println("Cache lock released after saving")
+		//log.Println("Cache lock released after saving")
 	}()
 
 	data, err := json.Marshal(cache)
@@ -51,9 +51,6 @@ func SaveCache(filename string, cache *types.Cache) error {
 		log.Printf("Error serializing cache: %v", err)
 		return fmt.Errorf("failed to serialize cache: %w", err)
 	}
-
-	_ = os.Rename(filename, filename+".bak") // Optional backup
-	log.Println("Backup created for cache file")
 
 	err = os.WriteFile(filename, data, 0644)
 	if err != nil {
