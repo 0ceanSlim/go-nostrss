@@ -1,8 +1,11 @@
 package main
 
 import (
+	"io"
 	"log"
+	"net/http"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -13,13 +16,39 @@ import (
 	"github.com/mmcdole/gofeed"
 )
 
-// FetchRSSFeed fetches and parses the RSS feed
+// sanitizeXML removes illegal XML characters that can cause parsing errors
+func sanitizeXML(data []byte) []byte {
+	// Remove control characters except tab, newline, and carriage return
+	// XML 1.0 spec allows: #x9 | #xA | #xD | [#x20-#xD7FF] | [#xE000-#xFFFD] | [#x10000-#x10FFFF]
+	re := regexp.MustCompile(`[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]`)
+	return re.ReplaceAll(data, []byte(""))
+}
+
+// FetchRSSFeed fetches and parses the RSS feed with XML sanitization
 func FetchRSSFeed(url string) ([]*gofeed.Item, error) {
-	parser := gofeed.NewParser()
-	feed, err := parser.ParseURL(url)
+	// Fetch the RSS feed manually to sanitize it
+	resp, err := http.Get(url)
 	if err != nil {
 		return nil, err
 	}
+	defer resp.Body.Close()
+
+	// Read the response body
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	// Sanitize the XML data
+	sanitizedData := sanitizeXML(data)
+
+	// Parse the sanitized XML
+	parser := gofeed.NewParser()
+	feed, err := parser.ParseString(string(sanitizedData))
+	if err != nil {
+		return nil, err
+	}
+
 	return feed.Items, nil
 }
 
@@ -98,5 +127,4 @@ func main() {
 			log.Printf("Error saving cache: %v", err)
 		}
 	}
-
 }
