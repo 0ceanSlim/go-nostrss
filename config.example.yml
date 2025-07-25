@@ -4,3 +4,4 @@ nostr_public_key: "Your Public Key in Hex Format"
 relay_url: "wss://relay.example.com"
 fetch_interval_minutes: 5
 cache_file: "posted_articles.json"
+message_format: "{{ .Title }}\n{{ .Link }}"

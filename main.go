@@ -1,12 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"io"
 	"log"
 	"net/http"
 	"os"
 	"regexp"
 	"strings"
+	"text/template"
 	"time"
 
 	"go-nostrss/nostr"
@@ -70,6 +72,11 @@ func main() {
 			log.Fatalf("Error loading configuration: %v", loadErr)
 		}
 	}
+	if config.MessageFormat == "" {
+		config.MessageFormat = "{{ .Title }}\n{{ .Link }}"
+	}
+
+	message_template := template.Must(template.New("message_template").Parse(config.MessageFormat))
 
 	cache, err := utils.LoadCache(config.CacheFile)
 	if err != nil {
@@ -94,7 +101,18 @@ func main() {
 			}
 			cache.Mu.Unlock()
 
-			content := strings.TrimSpace(item.Title) + "\n" + item.Link
+			var content_buf bytes.Buffer
+			if err := message_template.Execute(&content_buf,
+				struct {
+					Title, Link string
+				}{
+					Title: strings.TrimSpace(item.Title),
+					Link:  strings.TrimSpace(item.Link),
+				}); err != nil {
+				log.Printf("Error executing template: %v", err)
+			}
+
+			content := content_buf.String()
 
 			var createdAt int64
 			if item.PublishedParsed != nil {
