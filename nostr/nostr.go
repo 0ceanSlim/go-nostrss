@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 
 	"go-nostrss/types"
 
@@ -33,23 +34,48 @@ func CreateNostrEvent(content, pubkey string, createdAt int64) (*types.NostrEven
 	return event, nil
 }
 
+// escapeJSONString escapes a string according to NIP-01 requirements
+func escapeJSONString(s string) string {
+	s = strings.ReplaceAll(s, "\\", "\\\\") // backslash first
+	s = strings.ReplaceAll(s, "\"", "\\\"") // double quote
+	s = strings.ReplaceAll(s, "\n", "\\n")  // line break
+	s = strings.ReplaceAll(s, "\r", "\\r")  // carriage return
+	s = strings.ReplaceAll(s, "\t", "\\t")  // tab
+	s = strings.ReplaceAll(s, "\b", "\\b")  // backspace
+	s = strings.ReplaceAll(s, "\f", "\\f")  // form feed
+	return s
+}
+
 // SerializeEventForID serializes the event into the format required by NIP-01 for ID computation
 func SerializeEventForID(event types.NostrEvent) (string, error) {
-	serializedEvent := []interface{}{
-		0,
+	// Manually construct JSON to ensure NIP-01 compliance
+	var tagsJSON strings.Builder
+	tagsJSON.WriteString("[")
+	for i, tag := range event.Tags {
+		if i > 0 {
+			tagsJSON.WriteString(",")
+		}
+		tagsJSON.WriteString("[")
+		for j, tagValue := range tag {
+			if j > 0 {
+				tagsJSON.WriteString(",")
+			}
+			tagsJSON.WriteString(`"` + escapeJSONString(tagValue) + `"`)
+		}
+		tagsJSON.WriteString("]")
+	}
+	tagsJSON.WriteString("]")
+
+	// Build the complete serialized event array
+	serializedEvent := fmt.Sprintf(`[0,"%s",%d,%d,%s,"%s"]`,
 		event.Pubkey,
 		event.CreatedAt,
 		event.Kind,
-		event.Tags,
-		event.Content,
-	}
+		tagsJSON.String(),
+		escapeJSONString(event.Content),
+	)
 
-	eventBytes, err := json.Marshal(serializedEvent)
-	if err != nil {
-		return "", err
-	}
-
-	return string(eventBytes), nil
+	return serializedEvent, nil
 }
 
 // ComputeEventID computes the ID for a given event

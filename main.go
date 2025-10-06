@@ -73,7 +73,7 @@ func main() {
 		}
 	}
 	if config.MessageFormat == "" {
-		config.MessageFormat = "{{ .Title }}\n{{ .Link }}"
+		config.MessageFormat = "{{ .Title }}\n{{ .Thumb }}\n{{ .Link }}"
 	}
 
 	message_template := template.Must(template.New("message_template").Parse(config.MessageFormat))
@@ -102,12 +102,27 @@ func main() {
 			cache.Mu.Unlock()
 
 			var content_buf bytes.Buffer
+			thumbURL := ""
+
+			// First try standard Image field
+			if item.Image != nil && item.Image.URL != "" {
+				thumbURL = strings.TrimSpace(item.Image.URL)
+			} else if mediaExt, ok := item.Extensions["media"]; ok {
+				// Try media:thumbnail extension (for Reddit RSS)
+				if thumbnails, ok := mediaExt["thumbnail"]; ok && len(thumbnails) > 0 {
+					if urlAttr, ok := thumbnails[0].Attrs["url"]; ok {
+						thumbURL = strings.TrimSpace(urlAttr)
+					}
+				}
+			}
+
 			if err := message_template.Execute(&content_buf,
 				struct {
-					Title, Link string
+					Title, Link, Thumb string
 				}{
 					Title: strings.TrimSpace(item.Title),
 					Link:  strings.TrimSpace(item.Link),
+					Thumb: thumbURL,
 				}); err != nil {
 				log.Printf("Error executing template: %v", err)
 			}
