@@ -5,3 +5,9 @@ relay_url: "wss://relay.example.com"
 fetch_interval_minutes: 5
 cache_file: "posted_articles.json"
 message_format: "{{ .Title }}\n{{ .Thumb }}\n{{ .Link }}"
+
+# Cache pruning. Retention only has to outlast the window the feed itself
+# covers: once an item drops off the feed it can never be seen again, so
+# forgetting it cannot cause a repost. Set either to 0 to disable that rule.
+cache_retention_days: 30
+cache_max_entries: 5000

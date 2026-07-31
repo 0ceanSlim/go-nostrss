@@ -82,6 +82,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Error loading cache: %v", err)
 	}
+	utils.PruneCache(cache, config)
 
 	ticker := time.NewTicker(time.Duration(config.FetchIntervalMins) * time.Minute)
 	defer ticker.Stop()
@@ -94,12 +95,9 @@ func main() {
 		}
 
 		for _, item := range items {
-			cache.Mu.Lock()
-			if cache.PostedLinks[item.Link] {
-				cache.Mu.Unlock()
+			if cache.Has(item.Link) {
 				continue
 			}
-			cache.Mu.Unlock()
 
 			var content_buf bytes.Buffer
 			thumbURL := ""
@@ -148,12 +146,12 @@ func main() {
 				continue
 			}
 
-			cache.Mu.Lock()
-			cache.PostedLinks[item.Link] = true
-			cache.Mu.Unlock()
+			cache.Add(item.Link, time.Now())
 
 			log.Printf("Posted event: %s", event.ID)
 		}
+
+		utils.PruneCache(cache, config)
 
 		err = utils.SaveCache(config.CacheFile, cache)
 		if err != nil {
