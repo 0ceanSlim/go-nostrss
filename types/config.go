@@ -1,5 +1,7 @@
 package types
 
+import "strings"
+
 // Cache pruning defaults, applied when the config leaves the field unset. A
 // month comfortably outlasts the window any RSS feed covers, so an item pruned
 // at this age can no longer reappear and be reposted.
@@ -10,10 +12,15 @@ const (
 
 // Config represents the YAML configuration structure
 type Config struct {
-	RSSFeed           string `yaml:"rss_feed"`
-	NostrPrivateKey   string `yaml:"nostr_private_key"`
-	NostrPublicKey    string `yaml:"nostr_public_key"` // Added public key
-	RelayURL          string `yaml:"relay_url"`
+	RSSFeed         string `yaml:"rss_feed"`
+	NostrPrivateKey string `yaml:"nostr_private_key"`
+	NostrPublicKey  string `yaml:"nostr_public_key"` // Added public key
+
+	// RelayURL is the original single-relay field, kept so existing configs
+	// keep working. Prefer RelayURLs.
+	RelayURL  string   `yaml:"relay_url,omitempty"`
+	RelayURLs []string `yaml:"relay_urls,omitempty"`
+
 	FetchIntervalMins int    `yaml:"fetch_interval_minutes"`
 	CacheFile         string `yaml:"cache_file"`
 	MessageFormat     string `yaml:"message_format"`
@@ -22,6 +29,24 @@ type Config struct {
 	// disables that pruning rule.
 	CacheRetentionDays *int `yaml:"cache_retention_days,omitempty"`
 	CacheMaxEntries    *int `yaml:"cache_max_entries,omitempty"`
+}
+
+// Relays returns every configured relay, merging the legacy relay_url field
+// with relay_urls and dropping blanks and duplicates while preserving order.
+func (c *Config) Relays() []string {
+	seen := make(map[string]bool)
+	var relays []string
+
+	for _, relay := range append([]string{c.RelayURL}, c.RelayURLs...) {
+		relay = strings.TrimSpace(relay)
+		if relay == "" || seen[relay] {
+			continue
+		}
+		seen[relay] = true
+		relays = append(relays, relay)
+	}
+
+	return relays
 }
 
 // RetentionDays returns the configured cache retention in days, or the default

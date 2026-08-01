@@ -37,6 +37,24 @@ func PromptForInt(prompt string) int {
 	}
 }
 
+// PromptForList prompts for a comma-separated list and returns the non-empty,
+// deduplicated entries.
+func PromptForList(prompt string) []string {
+	seen := make(map[string]bool)
+	var values []string
+
+	for _, value := range strings.Split(PromptForInput(prompt), ",") {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		values = append(values, value)
+	}
+
+	return values
+}
+
 // SetupConfig initializes the configuration through user input
 func SetupConfig(filename string) (*types.Config, error) {
 	var config types.Config
@@ -44,9 +62,24 @@ func SetupConfig(filename string) (*types.Config, error) {
 	config.RSSFeed = PromptForInput("Enter the URL of the RSS Feed: ")
 	config.NostrPrivateKey = PromptForInput("Enter your Private Key in Hex Format: ")
 	config.NostrPublicKey = PromptForInput("Enter your Public Key in Hex Format: ")
-	config.RelayURL = PromptForInput("Enter the Relay URL (e.g., wss://relay.example.com): ")
+
+	for len(config.RelayURLs) == 0 {
+		config.RelayURLs = PromptForList(
+			"Enter Relay URLs, comma separated (e.g., wss://relay.damus.io, wss://nos.lol): ")
+		if len(config.RelayURLs) == 0 {
+			fmt.Println("At least one relay is required.")
+		}
+	}
+
 	config.FetchIntervalMins = PromptForInt("Enter the Fetch Interval in minutes: ")
-	config.CacheFile = "posted_articles.json" // Default value
+
+	// Defaults, written out explicitly so the file documents what is in effect.
+	config.CacheFile = "posted_articles.json"
+	config.MessageFormat = "{{ .Title }}\n{{ .Thumb }}\n{{ .Link }}"
+	retention := types.DefaultCacheRetentionDays
+	maxEntries := types.DefaultCacheMaxEntries
+	config.CacheRetentionDays = &retention
+	config.CacheMaxEntries = &maxEntries
 
 	data, err := yaml.Marshal(&config)
 	if err != nil {

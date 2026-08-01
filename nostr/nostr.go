@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
+	"time"
 
 	"go-nostrss/types"
 
@@ -15,14 +17,18 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// CreateNostrEvent creates a Nostr event with the given content and public key
-func CreateNostrEvent(content, pubkey string, createdAt int64) (*types.NostrEvent, error) {
+// CreateNostrEvent creates a Nostr event with the given content, public key and tags
+func CreateNostrEvent(content, pubkey string, createdAt int64, tags [][]string) (*types.NostrEvent, error) {
+	if tags == nil {
+		tags = [][]string{}
+	}
+
 	event := &types.NostrEvent{
 		Pubkey:    pubkey,
 		CreatedAt: createdAt, // Use the provided timestamp
 		Kind:      1,
 		Content:   content,
-		Tags:      [][]string{},
+		Tags:      tags,
 	}
 
 	eventStr, err := SerializeEventForID(*event)
@@ -84,21 +90,49 @@ func ComputeEventID(serializedEvent string) string {
 	return hex.EncodeToString(hash[:])
 }
 
-// SignAndSendEvent signs the event and sends it to the Nostr relay
-func SignAndSendEvent(event *types.NostrEvent, privKeyHex, relayURL string) error {
+// PublishResult records the outcome of sending an event to a single relay.
+type PublishResult struct {
+	Relay    string
+	Accepted bool
+	Message  string
+	Err      error
+}
+
+// SignAndPublish signs the event once and sends the identical signed event to
+// every relay concurrently. It returns one result per relay in the order given;
+// the caller decides how many acceptances count as success.
+func SignAndPublish(event *types.NostrEvent, privKeyHex string, relays []string) ([]PublishResult, error) {
+	if len(relays) == 0 {
+		return nil, fmt.Errorf("no relays configured")
+	}
+
 	privKeyBytes, err := hex.DecodeString(privKeyHex)
 	if err != nil {
-		return fmt.Errorf("failed to decode private key: %w", err)
+		return nil, fmt.Errorf("failed to decode private key: %w", err)
 	}
 
 	privKey, _ := btcec.PrivKeyFromBytes(privKeyBytes)
 	sig, err := SignEventSchnorr(event.ID, privKey)
 	if err != nil {
-		return fmt.Errorf("failed to sign event: %w", err)
+		return nil, fmt.Errorf("failed to sign event: %w", err)
 	}
 	event.Sig = sig
 
-	return SendEvent(relayURL, *event)
+	results := make([]PublishResult, len(relays))
+	var wg sync.WaitGroup
+
+	for i, relay := range relays {
+		wg.Add(1)
+		go func(i int, relay string) {
+			defer wg.Done()
+
+			accepted, message, err := SendEvent(relay, *event)
+			results[i] = PublishResult{Relay: relay, Accepted: accepted, Message: message, Err: err}
+		}(i, relay)
+	}
+
+	wg.Wait()
+	return results, nil
 }
 
 // SignEventSchnorr signs the event ID using Schnorr signatures
@@ -116,30 +150,75 @@ func SignEventSchnorr(eventID string, privKey *btcec.PrivateKey) (string, error)
 	return hex.EncodeToString(sig.Serialize()), nil
 }
 
-// SendEvent sends the event to the Nostr relay via WebSocket
-func SendEvent(relayURL string, event types.NostrEvent) error {
-	ws, _, err := websocket.DefaultDialer.Dial(relayURL, nil)
+// RelayTimeout bounds the whole publish exchange with one relay. Without it a
+// relay that accepts the connection and then goes quiet blocks the fetch loop
+// indefinitely.
+const RelayTimeout = 15 * time.Second
+
+// SendEvent sends the event to a Nostr relay via WebSocket and waits for the
+// NIP-01 OK response. It reports whether the relay accepted the event, along
+// with any message the relay attached.
+//
+// A relay can accept the connection and still reject the event ("rate-limited",
+// "blocked: pubkey not allowed"). Reporting that rejection lets the caller keep
+// the item out of the cache so the next cycle retries it.
+func SendEvent(relayURL string, event types.NostrEvent) (bool, string, error) {
+	dialer := websocket.Dialer{HandshakeTimeout: RelayTimeout}
+
+	ws, _, err := dialer.Dial(relayURL, nil)
 	if err != nil {
-		return fmt.Errorf("error connecting to Nostr relay: %w", err)
+		return false, "", fmt.Errorf("error connecting to Nostr relay: %w", err)
 	}
 	defer ws.Close()
 
-	msg := []interface{}{"EVENT", event}
-	eventJSON, err := json.Marshal(msg)
+	deadline := time.Now().Add(RelayTimeout)
+	_ = ws.SetWriteDeadline(deadline)
+	_ = ws.SetReadDeadline(deadline)
+
+	eventJSON, err := json.Marshal([]interface{}{"EVENT", event})
 	if err != nil {
-		return fmt.Errorf("failed to serialize event: %w", err)
+		return false, "", fmt.Errorf("failed to serialize event: %w", err)
 	}
 
-	err = ws.WriteMessage(websocket.TextMessage, eventJSON)
-	if err != nil {
-		return fmt.Errorf("failed to send event: %w", err)
+	if err := ws.WriteMessage(websocket.TextMessage, eventJSON); err != nil {
+		return false, "", fmt.Errorf("failed to send event: %w", err)
 	}
 
-	_, message, err := ws.ReadMessage()
-	if err != nil {
-		return fmt.Errorf("failed to read response from relay: %w", err)
-	}
+	// Relays may emit NOTICE or other frames first, so read until the OK that
+	// names this event arrives or the deadline expires.
+	for {
+		_, message, err := ws.ReadMessage()
+		if err != nil {
+			return false, "", fmt.Errorf("failed to read response from relay: %w", err)
+		}
 
-	log.Printf("Relay response: %s", string(message))
-	return nil
+		var frame []json.RawMessage
+		if err := json.Unmarshal(message, &frame); err != nil || len(frame) < 3 {
+			log.Printf("Relay %s sent: %s", relayURL, string(message))
+			continue
+		}
+
+		var kind string
+		if err := json.Unmarshal(frame[0], &kind); err != nil || kind != "OK" {
+			log.Printf("Relay %s sent: %s", relayURL, string(message))
+			continue
+		}
+
+		var id string
+		if err := json.Unmarshal(frame[1], &id); err != nil || id != event.ID {
+			continue
+		}
+
+		var accepted bool
+		if err := json.Unmarshal(frame[2], &accepted); err != nil {
+			return false, "", fmt.Errorf("malformed OK from relay: %s", string(message))
+		}
+
+		var reason string
+		if len(frame) > 3 {
+			_ = json.Unmarshal(frame[3], &reason)
+		}
+
+		return accepted, reason, nil
+	}
 }

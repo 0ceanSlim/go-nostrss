@@ -1,9 +1,17 @@
 rss_feed: "URL of the RSS Feed"
 nostr_private_key: "Your Private Key in Hex Format"
 nostr_public_key: "Your Public Key in Hex Format"
-relay_url: "wss://relay.example.com"
+
+# The event is signed once and sent to every relay in parallel. An item is only
+# marked as posted when at least one relay accepts it, so a relay being down or
+# rate-limiting leaves the item to be retried on the next cycle.
+relay_urls:
+  - "wss://relay.damus.io"
+  - "wss://nos.lol"
+
 fetch_interval_minutes: 5
 cache_file: "posted_articles.json"
+
 message_format: "{{ .Title }}\n{{ .Thumb }}\n{{ .Link }}"
 
 # Cache pruning. Retention only has to outlast the window the feed itself
@@ -11,3 +19,6 @@ message_format: "{{ .Title }}\n{{ .Thumb }}\n{{ .Link }}"
 # forgetting it cannot cause a repost. Set either to 0 to disable that rule.
 cache_retention_days: 30
 cache_max_entries: 5000
+
+# Deprecated, still honoured. A single relay, merged into relay_urls above.
+# relay_url: "wss://relay.example.com"
