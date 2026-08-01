@@ -12,7 +12,10 @@ relay_urls:
 fetch_interval_minutes: 5
 cache_file: "posted_articles.json"
 
-message_format: "{{ .Title }}\n{{ .Thumb }}\n{{ .Link }}"
+# Go text/template. Available fields: .Title .Image .Link (.Thumb is an alias
+# for .Image, kept for older configs). Wrap .Image in `with` so items without a
+# picture do not leave a blank line. Must be double-quoted for \n to be a newline.
+message_format: "{{ .Title }}\n{{ with .Image }}{{ . }}\n{{ end }}{{ .Link }}"
 
 # Cache pruning. Retention only has to outlast the window the feed itself
 # covers: once an item drops off the feed it can never be seen again, so

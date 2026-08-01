@@ -78,30 +78,31 @@ func FetchRSSFeed(url string) ([]*gofeed.Item, error) {
 // buildNote renders the note body for an item and returns it alongside any tags
 // the item warrants.
 func buildNote(tmpl *template.Template, item *gofeed.Item) (string, [][]string, error) {
-	thumbURL := ""
-	if item.Image != nil && item.Image.URL != "" {
-		thumbURL = strings.TrimSpace(item.Image.URL)
-	} else if mediaExt, ok := item.Extensions["media"]; ok {
-		if thumbnails, ok := mediaExt["thumbnail"]; ok && len(thumbnails) > 0 {
-			if urlAttr, ok := thumbnails[0].Attrs["url"]; ok {
-				thumbURL = strings.TrimSpace(urlAttr)
-			}
-		}
-	}
+	// Pull the full-size post image rather than the feed thumbnail, and rewrite
+	// it to a URL nostr clients will actually embed.
+	imageURL := utils.ExtractImageURL(item)
 
 	var buf bytes.Buffer
 	err := tmpl.Execute(&buf, struct {
-		Title, Link, Thumb string
+		Title, Link, Image, Thumb string
 	}{
 		Title: strings.TrimSpace(item.Title),
 		Link:  strings.TrimSpace(item.Link),
-		Thumb: thumbURL,
+		Image: imageURL,
+		Thumb: imageURL, // kept so existing message_format configs keep working
 	})
 	if err != nil {
 		return "", nil, err
 	}
 
-	return strings.TrimSpace(buf.String()), nil, nil
+	// NIP-92: tell clients up front that the URL in the content is an image, so
+	// they embed it without having to sniff the link.
+	tags := [][]string{}
+	if imageURL != "" {
+		tags = append(tags, []string{"imeta", "url " + imageURL, "m " + utils.ImageMIME(imageURL)})
+	}
+
+	return strings.TrimSpace(buf.String()), tags, nil
 }
 
 // publish sends the event to every relay and returns how many accepted it.
@@ -198,7 +199,8 @@ func main() {
 	}
 
 	if config.MessageFormat == "" {
-		config.MessageFormat = "{{ .Title }}\n{{ .Thumb }}\n{{ .Link }}"
+		// `with` keeps the blank line out of the note when an item has no image.
+		config.MessageFormat = "{{ .Title }}\n{{ with .Image }}{{ . }}\n{{ end }}{{ .Link }}"
 	}
 
 	tmpl, err := template.New("message_template").Parse(config.MessageFormat)

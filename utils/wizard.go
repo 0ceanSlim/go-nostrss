@@ -75,7 +75,7 @@ func SetupConfig(filename string) (*types.Config, error) {
 
 	// Defaults, written out explicitly so the file documents what is in effect.
 	config.CacheFile = "posted_articles.json"
-	config.MessageFormat = "{{ .Title }}\n{{ .Thumb }}\n{{ .Link }}"
+	config.MessageFormat = "{{ .Title }}\n{{ with .Image }}{{ . }}\n{{ end }}{{ .Link }}"
 	retention := types.DefaultCacheRetentionDays
 	maxEntries := types.DefaultCacheMaxEntries
 	config.CacheRetentionDays = &retention
