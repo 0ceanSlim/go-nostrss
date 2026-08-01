@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -18,6 +19,15 @@ import (
 	"github.com/mmcdole/gofeed"
 )
 
+// version is overwritten at build time with -ldflags "-X main.version=<tag>".
+var version = "dev"
+
+// Some feeds (Reddit in particular) throttle or serve a non-feed response to
+// clients that do not identify themselves.
+var userAgent = "go-nostrss/" + version + " (+https://github.com/0ceanSlim/go-nostrss)"
+
+var httpClient = &http.Client{Timeout: 30 * time.Second}
+
 // sanitizeXML removes illegal XML characters that can cause parsing errors
 func sanitizeXML(data []byte) []byte {
 	// Remove control characters except tab, newline, and carriage return
@@ -28,12 +38,23 @@ func sanitizeXML(data []byte) []byte {
 
 // FetchRSSFeed fetches and parses the RSS feed with XML sanitization
 func FetchRSSFeed(url string) ([]*gofeed.Item, error) {
-	// Fetch the RSS feed manually to sanitize it
-	resp, err := http.Get(url)
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", userAgent)
+
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
+
+	// Report the status directly; otherwise a throttling page reaches the
+	// parser and surfaces as a confusing "Failed to detect feed type".
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("feed returned %s", resp.Status)
+	}
 
 	// Read the response body
 	data, err := io.ReadAll(resp.Body)
@@ -158,6 +179,8 @@ func processFeed(config *types.Config, tmpl *template.Template, cache *types.Cac
 func main() {
 	const configFileName = "config.yml"
 
+	log.Printf("go-nostrss %s", version)
+
 	var config *types.Config
 	if _, err := os.Stat(configFileName); os.IsNotExist(err) {
 		log.Println("Configuration file not found. Starting setup wizard...")
@@ -198,6 +221,9 @@ func main() {
 		log.Fatalf("Error loading cache: %v", err)
 	}
 	utils.PruneCache(cache, config)
+
+	// Fetch once up front so a restart does not sit idle for a full interval.
+	processFeed(config, tmpl, cache, relays)
 
 	ticker := time.NewTicker(time.Duration(config.FetchIntervalMins) * time.Minute)
 	defer ticker.Stop()
